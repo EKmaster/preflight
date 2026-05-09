@@ -257,6 +257,7 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
   }
 
   const runtime: RuntimeArtifacts = {
+    crawlSucceeded: true,
     screenshots: [],
     consoleErrors: [],
     networkFailures: [],
@@ -476,12 +477,21 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
     await browser.close();
   }
 
+  if (runtime.pageMetadata.length === 0) {
+    runtime.crawlSucceeded = false;
+    runtime.crawlFailureSummary =
+      "No pages were successfully loaded — the preview could not be analyzed (browser, network, or target error).";
+    runtime.consoleErrors.unshift(runtime.crawlFailureSummary);
+  }
+
   return runtime;
 }
 
 export function getPartialFailureArtifacts(message: string): RuntimeArtifacts {
   const perf: PerformanceMetrics = { lcpMs: 0, ttiMs: 0, tbtMs: 0, slowRequests: [] };
   return {
+    crawlSucceeded: false,
+    crawlFailureSummary: message.slice(0, 500),
     screenshots: [],
     consoleErrors: [message],
     networkFailures: [],

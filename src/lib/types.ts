@@ -37,6 +37,9 @@ export type SecurityFinding = {
 };
 
 export type RuntimeArtifacts = {
+  /** False when the browser never ran or no page was successfully analyzed — scores must not pretend a crawl happened. */
+  crawlSucceeded: boolean;
+  crawlFailureSummary?: string;
   screenshots: Screenshot[];
   consoleErrors: string[];
   networkFailures: string[];

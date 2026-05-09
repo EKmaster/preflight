@@ -52,6 +52,13 @@ export async function GET(request: NextRequest) {
           });
         }
 
+        if (!artifacts.crawlSucceeded) {
+          send({
+            type: "error",
+            message: `Crawl did not succeed — verdict will be BLOCK until a real browser run works. ${(artifacts.crawlFailureSummary ?? "").slice(0, 400)}`,
+          });
+        }
+
         const resultPromises = EVALUATORS.map(async (evaluator) => {
           send({ type: "evaluator_started", evaluator });
           const result = await runEvaluator(evaluator, artifacts);
@@ -60,7 +67,7 @@ export async function GET(request: NextRequest) {
         });
         const results = await Promise.all(resultPromises);
 
-        const verdict = judge(results);
+        const verdict = judge(results, artifacts);
         send({ type: "final_verdict", verdict });
 
         const comment = buildGitHubComment(verdict);

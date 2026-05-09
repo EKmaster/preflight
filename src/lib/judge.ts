@@ -1,10 +1,24 @@
-import type { EvaluatorResult, FinalVerdict } from "@/lib/types";
+import type { EvaluatorResult, FinalVerdict, RuntimeArtifacts } from "@/lib/types";
 
 function scoreToConfidence(score: number): number {
   return Math.max(55, Math.min(98, Math.round(55 + score * 4.3)));
 }
 
-export function judge(results: EvaluatorResult[]): FinalVerdict {
+export function judge(results: EvaluatorResult[], artifacts: RuntimeArtifacts): FinalVerdict {
+  if (!artifacts.crawlSucceeded) {
+    const reason = artifacts.crawlFailureSummary ?? "Preview crawl did not succeed.";
+    return {
+      status: "block",
+      confidence: 92,
+      summary:
+        "Blocked: the preview was not analyzed in a real browser. Fix the crawler environment (see reliability) before trusting any verdict.",
+      topFixes: [
+        `[reliability] ${reason.slice(0, 280)}`,
+        "[infra] On Vercel, Chromium may fail if host libraries are missing (e.g. libnss3). Try turning off Fluid Compute, upgrading plan, or use an external browser service.",
+      ],
+    };
+  }
+
   const byName = new Map(results.map((r) => [r.evaluator, r]));
   const reliability = byName.get("reliability");
   const security = byName.get("security");

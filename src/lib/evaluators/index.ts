@@ -35,6 +35,7 @@ class OpenAIEvaluatorModel implements EvaluatorModel {
           performance: input.artifacts.performanceMetrics,
           securityFindings: input.artifacts.securityFindings.slice(0, 8),
           pageMetadata: input.artifacts.pageMetadata.slice(0, 8),
+          crawlSucceeded: input.artifacts.crawlSucceeded,
         },
         null,
         2,
@@ -70,10 +71,58 @@ function summarizeText(values: string[], fallback: string): string[] {
   return values.slice(0, 3);
 }
 
+function resultWhenCrawlSkipped(
+  evaluator: EvaluatorResult["evaluator"],
+  artifacts: RuntimeArtifacts,
+): EvaluatorResult {
+  const hint = artifacts.crawlFailureSummary ?? "Runtime crawl did not complete.";
+  switch (evaluator) {
+    case "reliability":
+      return {
+        evaluator,
+        score: 1,
+        recommendation: "block",
+        findings: [hint.slice(0, 420), "No live preview was exercised — do not treat results as a deployment review."],
+      };
+    case "performance":
+      return {
+        evaluator,
+        score: 1,
+        recommendation: "block",
+        findings: ["No performance metrics captured (crawl/browser did not run).", hint.slice(0, 200)],
+      };
+    case "ux":
+      return {
+        evaluator,
+        score: 1,
+        recommendation: "block",
+        findings: ["No UI was sampled — verdict must not be inferred from empty data.", hint.slice(0, 200)],
+      };
+    case "accessibility":
+      return {
+        evaluator,
+        score: 1,
+        recommendation: "block",
+        findings: ["Accessibility checks did not run on a loaded page.", hint.slice(0, 200)],
+      };
+    case "security":
+      return {
+        evaluator,
+        score: 1,
+        recommendation: "block",
+        findings: ["Security signals were not collected from a live render (crawl unavailable).", hint.slice(0, 200)],
+      };
+  }
+}
+
 export async function runEvaluator(
   evaluator: EvaluatorResult["evaluator"],
   artifacts: RuntimeArtifacts,
 ): Promise<EvaluatorResult> {
+  if (!artifacts.crawlSucceeded) {
+    return resultWhenCrawlSkipped(evaluator, artifacts);
+  }
+
   let base: EvaluatorResult;
   const consoleCount = artifacts.consoleErrors.length;
   const netFailCount = artifacts.networkFailures.length;
@@ -84,6 +133,19 @@ export async function runEvaluator(
 
   switch (evaluator) {
     case "reliability": {
+      const combined = [...artifacts.consoleErrors, ...artifacts.networkFailures];
+      const catastrophic = combined.some((msg) =>
+        /Browser launch failed|libnss3\.so|shared libraries|executable doesn't exist|browser has been closed/i.test(msg),
+      );
+      if (catastrophic) {
+        base = {
+          evaluator,
+          score: 1,
+          recommendation: "block",
+          findings: summarizeText(combined, "Critical browser or runtime infrastructure failure."),
+        };
+        break;
+      }
       const score = 10 - consoleCount * 2 - netFailCount * 2;
       const rec: EvaluatorResult["recommendation"] = score <= 4 ? "block" : score <= 7 ? "fix" : "ship";
       base = {
@@ -126,6 +188,18 @@ export async function runEvaluator(
       break;
     }
     case "performance": {
+      if (artifacts.pageMetadata.length === 0 && lcpMs === 0 && ttiMs === 0) {
+        base = {
+          evaluator,
+          score: 2,
+          recommendation: "fix",
+          findings: [
+            "No navigation timings — performance was not measured on loaded pages.",
+            "If reliability shows browser errors, fix the crawler environment before trusting timings.",
+          ],
+        };
+        break;
+      }
       const lcpPenalty = lcpMs > 4000 ? 3 : lcpMs > 2500 ? 2 : lcpMs > 1500 ? 1 : 0;
       const ttiPenalty = ttiMs > 6000 ? 3 : ttiMs > 3500 ? 2 : ttiMs > 2000 ? 1 : 0;
       const tbtPenalty = tbtMs > 1200 ? 2 : tbtMs > 500 ? 1 : 0;
@@ -171,7 +245,7 @@ export async function runEvaluator(
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return base;
+  if (!apiKey || !artifacts.crawlSucceeded) return base;
 
   try {
     const model = process.env.PREFLIGHT_MODEL ?? "gpt-4.1-mini";
