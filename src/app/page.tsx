@@ -118,10 +118,10 @@ export default function Home() {
     <div className="min-h-screen bg-[#05070f] text-zinc-100">
       <main className="mx-auto flex max-w-[1400px] flex-col gap-6 px-6 py-8">
         <header className="space-y-2">
-          <p className="text-xs uppercase tracking-[0.28em] text-indigo-300">Preflight MVP</p>
+          <p className="text-xs uppercase tracking-[0.28em] text-indigo-300">Preflight POC</p>
           <h1 className="text-3xl font-semibold">AI-Powered Deployment Review</h1>
           <p className="text-sm text-zinc-400">
-            Runtime deployment intelligence for Vercel previews. Paste a preview URL to start.
+            Proof-of-concept runtime intelligence for Vercel previews. Paste a preview URL to start.
           </p>
         </header>
 

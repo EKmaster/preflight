@@ -9,7 +9,7 @@ function verdictLabel(status: FinalVerdict["status"]): string {
 export function buildGitHubComment(verdict: FinalVerdict): string {
   const fixes = verdict.topFixes.slice(0, 5).map((f) => `- ${f}`).join("\n");
   return [
-    "## Preflight Deployment Review",
+    "## Preflight Deployment Review (POC)",
     "",
     "### Final Verdict",
     verdictLabel(verdict.status),

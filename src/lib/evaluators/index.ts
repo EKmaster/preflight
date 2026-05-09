@@ -215,7 +215,7 @@ export async function runEvaluator(
             `TBT ${tbtMs}ms`,
             ...artifacts.performanceMetrics.slowRequests,
           ],
-          "Performance metrics are within acceptable MVP bounds.",
+          "Performance metrics are within acceptable POC bounds.",
         ),
         recommendation: rec,
       };

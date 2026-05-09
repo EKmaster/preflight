@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Preflight MVP",
-  description: "AI-powered deployment review for Vercel preview environments",
+  title: "Preflight POC",
+  description:
+    "Proof-of-concept: AI-powered deployment review for Vercel preview environments",
 };
 
 export default function RootLayout({
