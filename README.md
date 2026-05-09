@@ -139,4 +139,4 @@ src/lib/github.ts          # PR comment markdown
 
 ## License
 
-Private project unless you add a license file.
+MIT.
