@@ -78,7 +78,13 @@ export default function Home() {
 
     const source = new EventSource(`/api/scan?previewUrl=${encodeURIComponent(previewUrl)}`);
     source.onmessage = (evt) => {
-      const data = JSON.parse(evt.data) as StreamEvent;
+      let data: StreamEvent;
+      try {
+        data = JSON.parse(evt.data) as StreamEvent;
+      } catch {
+        pushFeed("SSE parse error — payload may be truncated (try re-run).");
+        return;
+      }
       if (data.type === "navigation_update") {
         pushFeed(data.message);
         if (data.screenshot) setScreenshot(data.screenshot);

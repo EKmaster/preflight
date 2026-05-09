@@ -19,8 +19,10 @@ const EVALUATORS: EvaluatorResult["evaluator"][] = [
   "performance",
 ];
 
-function toSSE(event: StreamEvent): string {
-  return `data: ${JSON.stringify(event)}\n\n`;
+const sseEncoder = new TextEncoder();
+
+function toSSEBytes(event: StreamEvent): Uint8Array {
+  return sseEncoder.encode(`data: ${JSON.stringify(event)}\n\n`);
 }
 
 export async function GET(request: NextRequest) {
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (event: StreamEvent) => controller.enqueue(toSSE(event));
+      const send = (event: StreamEvent) => controller.enqueue(toSSEBytes(event));
 
       try {
         const previewUrl = validatePreviewUrl(rawUrl);
@@ -62,11 +64,7 @@ export async function GET(request: NextRequest) {
         send({ type: "final_verdict", verdict });
 
         const comment = buildGitHubComment(verdict);
-        send({
-          type: "navigation_update",
-          message: "GitHub comment draft generated.",
-          screenshot: artifacts.screenshots[0],
-        });
+        send({ type: "navigation_update", message: "GitHub comment draft generated." });
         send({ type: "navigation_update", message: comment });
 
         send({ type: "done" });
@@ -86,6 +84,7 @@ export async function GET(request: NextRequest) {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

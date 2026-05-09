@@ -1,6 +1,6 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import type { Browser, ConsoleMessage, Page, Request, Response } from "playwright-core";
-import { launchChromiumBrowser } from "@/lib/runtime/browser";
+import { isPreflightServerless, launchChromiumBrowser } from "@/lib/runtime/browser";
 import type {
   AccessibilityFinding,
   PerformanceMetrics,
@@ -9,8 +9,18 @@ import type {
   SecurityFinding,
 } from "@/lib/types";
 
-const DESKTOP = { width: 1440, height: 900 };
-const MOBILE = { width: 390, height: 844 };
+const DESKTOP = isPreflightServerless()
+  ? ({ width: 1200, height: 760 } as const)
+  : ({ width: 1440, height: 900 } as const);
+const MOBILE = { width: 390, height: 844 } as const;
+
+/** Large full-page JPEGs blow past SSE/message limits on serverless — use viewport snapshots there. */
+function screenshotOpts(): { fullPage: boolean; type: "jpeg"; quality: number } {
+  if (isPreflightServerless()) {
+    return { fullPage: false, type: "jpeg", quality: 38 };
+  }
+  return { fullPage: true, type: "jpeg", quality: 60 };
+}
 
 type CrawlOptions = {
   maxDepth?: number;
@@ -235,6 +245,10 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
   const maxDepth = options.maxDepth ?? 2;
   const maxPages = options.maxPages ?? 8;
 
+  const navWait = isPreflightServerless() ? ("domcontentloaded" as const) : ("networkidle" as const);
+  const navTimeoutDesktop = isPreflightServerless() ? 35_000 : 30_000;
+  const ss = screenshotOpts();
+
   let browser: Browser;
   try {
     browser = await launchChromiumBrowser();
@@ -302,7 +316,13 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
       });
 
       try {
-        mainDocumentResponse = await desktopPage.goto(next.url, { waitUntil: "networkidle", timeout: 30000 });
+        mainDocumentResponse = await desktopPage.goto(next.url, {
+          waitUntil: navWait,
+          timeout: navTimeoutDesktop,
+        });
+        if (isPreflightServerless()) {
+          await new Promise((r) => setTimeout(r, 450));
+        }
       } catch (err) {
         runtime.networkFailures.push(`Navigation failed for ${next.url}: ${String(err)}`);
         await desktopContext.close();
@@ -316,7 +336,7 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
         status: mainDocumentResponse?.status() ?? 0,
       });
 
-      const desktopShot = await desktopPage.screenshot({ fullPage: true, type: "jpeg", quality: 60 });
+      const desktopShot = await desktopPage.screenshot(ss);
       const desktopScreenshot: Screenshot = {
         path: new URL(next.url).pathname || "/",
         depth: next.depth,
@@ -332,7 +352,7 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
       try {
         const signedUp = await attemptSignupFlow(desktopPage);
         if (signedUp) {
-          const postSignupShot = await desktopPage.screenshot({ fullPage: true, type: "jpeg", quality: 60 });
+          const postSignupShot = await desktopPage.screenshot(ss);
           const postSignupScreenshot: Screenshot = {
             path: new URL(desktopPage.url()).pathname || "/",
             depth: next.depth,
@@ -366,7 +386,11 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
       const mobilePage = await mobileContext.newPage();
       try {
         await mobilePage.goto(next.url, { waitUntil: "domcontentloaded", timeout: 25000 });
-        const mobileShot = await mobilePage.screenshot({ fullPage: true, type: "jpeg", quality: 50 });
+        const mobileShot = await mobilePage.screenshot({
+          fullPage: false,
+          type: "jpeg",
+          quality: isPreflightServerless() ? 35 : 50,
+        });
         runtime.screenshots.push({
           path: new URL(next.url).pathname || "/",
           depth: next.depth,
