@@ -8,6 +8,8 @@ import { validatePreviewUrl } from "@/lib/validators";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Needed for Playwright crawl on slow previews (Vercel Pro+ can extend further). */
+export const maxDuration = 60;
 
 const EVALUATORS: EvaluatorResult["evaluator"][] = [
   "ux",

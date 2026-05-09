@@ -1,5 +1,6 @@
 import { AxeBuilder } from "@axe-core/playwright";
-import { chromium, type ConsoleMessage, type Page, type Request, type Response } from "playwright";
+import type { Browser, ConsoleMessage, Page, Request, Response } from "playwright-core";
+import { launchChromiumBrowser } from "@/lib/runtime/browser";
 import type {
   AccessibilityFinding,
   PerformanceMetrics,
@@ -234,7 +235,12 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
   const maxDepth = options.maxDepth ?? 2;
   const maxPages = options.maxPages ?? 8;
 
-  const browser = await chromium.launch({ headless: true });
+  let browser: Browser;
+  try {
+    browser = await launchChromiumBrowser();
+  } catch (err) {
+    return getPartialFailureArtifacts(`Browser launch failed: ${String(err)}`);
+  }
 
   const runtime: RuntimeArtifacts = {
     screenshots: [],
