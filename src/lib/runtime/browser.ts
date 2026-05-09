@@ -1,4 +1,5 @@
 import type { Browser } from "playwright-core";
+import { prepareSparticuzAmazonLinuxLibs } from "@/lib/runtime/sparticuz-libs";
 
 /**
  * Vercel serverless (and AWS Lambda) do not bundle Playwright’s downloaded Chromium.
@@ -14,7 +15,15 @@ export function isPreflightServerless(): boolean {
 }
 
 export async function launchChromiumBrowser(): Promise<Browser> {
+  const remoteWs = process.env.PREFLIGHT_BROWSER_WS_ENDPOINT?.trim();
+  if (remoteWs) {
+    const { chromium } = await import("playwright-core");
+    return chromium.connect(remoteWs, { timeout: 120_000 });
+  }
+
   const launchServerless = async () => {
+    await prepareSparticuzAmazonLinuxLibs();
+
     const [{ chromium }, sparticuzMod] = await Promise.all([
       import("playwright-core"),
       import("@sparticuz/chromium"),
@@ -54,6 +63,7 @@ export async function launchChromiumBrowser(): Promise<Browser> {
     const { chromium } = await import("playwright");
     return chromium.launch({ headless: true, timeout: 120_000 });
   } catch {
+    await prepareSparticuzAmazonLinuxLibs();
     const [{ chromium }, sparticuzMod] = await Promise.all([
       import("playwright-core"),
       import("@sparticuz/chromium"),
