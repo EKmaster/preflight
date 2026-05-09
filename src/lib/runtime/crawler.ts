@@ -1,6 +1,8 @@
 import { AxeBuilder } from "@axe-core/playwright";
-import type { Browser, ConsoleMessage, Page, Request, Response } from "playwright-core";
+import type { Browser, BrowserContext, ConsoleMessage, Page, Request, Response } from "playwright-core";
 import { isPreflightServerless, launchChromiumBrowser } from "@/lib/runtime/browser";
+
+const settleLoad = isPreflightServerless() ? ("domcontentloaded" as const) : ("networkidle" as const);
 import type {
   AccessibilityFinding,
   PerformanceMetrics,
@@ -219,7 +221,7 @@ async function attemptSignupFlow(page: Page): Promise<boolean> {
       const beforeUrl = page.url();
       try {
         await Promise.allSettled([
-          page.waitForLoadState("networkidle", { timeout: 12000 }),
+          page.waitForLoadState(settleLoad, { timeout: isPreflightServerless() ? 8000 : 12000 }),
           submit.click({ timeout: 5000 }),
         ]);
       } catch {
@@ -234,7 +236,7 @@ async function attemptSignupFlow(page: Page): Promise<boolean> {
   // Last fallback: submit nearest form via Enter key.
   try {
     await page.keyboard.press("Enter");
-    await page.waitForLoadState("networkidle", { timeout: 5000 });
+    await page.waitForLoadState(settleLoad, { timeout: isPreflightServerless() ? 4000 : 5000 });
     return true;
   } catch {
     return false;
@@ -276,7 +278,10 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
   const visited = new Set<string>();
   const queue: Array<{ url: string; depth: number }> = [{ url: previewUrl, depth: 0 }];
 
+  let desktopContext: BrowserContext | null = null;
   try {
+    desktopContext = await browser.newContext({ viewport: DESKTOP });
+    const ctx = desktopContext;
     while (queue.length && visited.size < maxPages) {
       const next = queue.shift();
       if (!next) {
@@ -287,8 +292,7 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
       }
       visited.add(next.url);
 
-      const desktopContext = await browser.newContext({ viewport: DESKTOP });
-      const desktopPage = await desktopContext.newPage();
+      const desktopPage = await ctx.newPage();
       let mainDocumentResponse: Response | null = null;
       const requestStart = new Map<Request, number>();
 
@@ -317,18 +321,18 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
       });
 
       try {
-        mainDocumentResponse = await desktopPage.goto(next.url, {
-          waitUntil: navWait,
-          timeout: navTimeoutDesktop,
-        });
-        if (isPreflightServerless()) {
-          await new Promise((r) => setTimeout(r, 450));
+        try {
+          mainDocumentResponse = await desktopPage.goto(next.url, {
+            waitUntil: navWait,
+            timeout: navTimeoutDesktop,
+          });
+          if (isPreflightServerless()) {
+            await new Promise((r) => setTimeout(r, 450));
+          }
+        } catch (err) {
+          runtime.networkFailures.push(`Navigation failed for ${next.url}: ${String(err)}`);
+          continue;
         }
-      } catch (err) {
-        runtime.networkFailures.push(`Navigation failed for ${next.url}: ${String(err)}`);
-        await desktopContext.close();
-        continue;
-      }
 
       runtime.visitedPaths.push(new URL(next.url).pathname || "/");
       runtime.pageMetadata.push({
@@ -379,29 +383,51 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
         runtime.consoleErrors.push(`Signup interaction failed on ${next.url}: ${String(err)}`);
       }
 
-      const mobileContext = await browser.newContext({
-        viewport: MOBILE,
-        userAgent:
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-      });
-      const mobilePage = await mobileContext.newPage();
-      try {
-        await mobilePage.goto(next.url, { waitUntil: "domcontentloaded", timeout: 25000 });
-        const mobileShot = await mobilePage.screenshot({
-          fullPage: false,
-          type: "jpeg",
-          quality: isPreflightServerless() ? 35 : 50,
+      if (isPreflightServerless()) {
+        try {
+          await desktopPage.setViewportSize({ width: MOBILE.width, height: MOBILE.height });
+          await new Promise((r) => setTimeout(r, 350));
+          const mobileShot = await desktopPage.screenshot({
+            fullPage: false,
+            type: "jpeg",
+            quality: 35,
+          });
+          runtime.screenshots.push({
+            path: new URL(next.url).pathname || "/",
+            depth: next.depth,
+            viewport: "mobile",
+            dataUrl: `data:image/jpeg;base64,${mobileShot.toString("base64")}`,
+          });
+        } catch {
+          runtime.networkFailures.push(`Mobile viewport screenshot failed for ${next.url}`);
+        } finally {
+          await desktopPage.setViewportSize({ width: DESKTOP.width, height: DESKTOP.height }).catch(() => {});
+        }
+      } else {
+        const mobileContext = await browser.newContext({
+          viewport: MOBILE,
+          userAgent:
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
         });
-        runtime.screenshots.push({
-          path: new URL(next.url).pathname || "/",
-          depth: next.depth,
-          viewport: "mobile",
-          dataUrl: `data:image/jpeg;base64,${mobileShot.toString("base64")}`,
-        });
-      } catch {
-        runtime.networkFailures.push(`Mobile screenshot failed for ${next.url}`);
-      } finally {
-        await mobileContext.close();
+        const mobilePage = await mobileContext.newPage();
+        try {
+          await mobilePage.goto(next.url, { waitUntil: "domcontentloaded", timeout: 25000 });
+          const mobileShot = await mobilePage.screenshot({
+            fullPage: false,
+            type: "jpeg",
+            quality: 50,
+          });
+          runtime.screenshots.push({
+            path: new URL(next.url).pathname || "/",
+            depth: next.depth,
+            viewport: "mobile",
+            dataUrl: `data:image/jpeg;base64,${mobileShot.toString("base64")}`,
+          });
+        } catch {
+          runtime.networkFailures.push(`Mobile screenshot failed for ${next.url}`);
+        } finally {
+          await mobileContext.close().catch(() => {});
+        }
       }
 
       try {
@@ -470,11 +496,13 @@ export async function runRuntimeCrawl(previewUrl: string, options: CrawlOptions 
           runtime.consoleErrors.push(`Link discovery failed on ${next.url}: ${String(err)}`);
         }
       }
-
-      await desktopContext.close();
+      } finally {
+        await desktopPage.close().catch(() => {});
+      }
     }
   } finally {
-    await browser.close();
+    await desktopContext?.close().catch(() => {});
+    await browser.close().catch(() => {});
   }
 
   if (runtime.pageMetadata.length === 0) {

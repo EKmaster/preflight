@@ -43,6 +43,10 @@ export async function launchChromiumBrowser(): Promise<Browser> {
       executablePath,
       headless: true,
       timeout: 120_000,
+      env: {
+        ...process.env,
+        LIBGL_ALWAYS_SOFTWARE: "1",
+      },
     });
   };
 
@@ -79,6 +83,10 @@ export async function launchChromiumBrowser(): Promise<Browser> {
       executablePath: await Sc.executablePath(),
       headless: true,
       timeout: 120_000,
+      env: {
+        ...process.env,
+        LIBGL_ALWAYS_SOFTWARE: "1",
+      },
     });
   }
 }
